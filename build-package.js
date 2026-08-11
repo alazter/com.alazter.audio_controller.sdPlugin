@@ -82,7 +82,7 @@ console.log("🤐 Compactando em arquivo temporário ZIP...");
 
 try {
     // 1. Compactar como .zip primeiro (exigido pelo PowerShell Compress-Archive)
-    execSync(`powershell -Command "Compress-Archive -Path '${TARGET_DIR}' -DestinationPath '${ZIP_PATH}' -Force"`);
+    execSync(`powershell -Command "Compress-Archive -Path '${TARGET_DIR}\\*' -DestinationPath '${ZIP_PATH}' -Force"`);
     
     // 2. Renomear o .zip para o arquivo final .SDPlugin
     fs.renameSync(ZIP_PATH, PACKAGE_PATH);
