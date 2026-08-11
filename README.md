@@ -5,7 +5,7 @@ This repository contains an independent, custom standalone version of the Audio 
 ## 📦 How to Install and Use
 
 1. Download the packaged plugin installer (`com.alazter.audio_controller.sdPlugin`) directly from the releases page:
-   👉 **[Download Latest Release (v0.3.5)](https://github.com/alazter/com.mirabox.streamdock.time.sdPlugin/releases/download/v0.3.5/com.alazter.audio_controller.sdPlugin)**
+   👉 **[Download Latest Release (v0.3.6)](https://github.com/alazter/com.mirabox.streamdock.time.sdPlugin/releases/download/v0.3.6/com.alazter.audio_controller.sdPlugin)**
 2. **Double-click** the downloaded `.sdPlugin` file.
 3. The Mirabox Stream Dock software will automatically open and install the plugin instantly.
 
@@ -24,7 +24,7 @@ Este repositório contém uma versão independente (standalone) e personalizada 
 ## 📦 Como Instalar e Usar
 
 1. Baixe o instalador oficial do plugin (`com.alazter.audio_controller.sdPlugin`) diretamente na página de lançamentos:
-   👉 **[Baixar Versão Recente (v0.3.5)](https://github.com/alazter/com.mirabox.streamdock.time.sdPlugin/releases/download/v0.3.5/com.alazter.audio_controller.sdPlugin)**
+   👉 **[Baixar Versão Recente (v0.3.6)](https://github.com/alazter/com.mirabox.streamdock.time.sdPlugin/releases/download/v0.3.6/com.alazter.audio_controller.sdPlugin)**
 2. Dê um **clique duplo** no arquivo `.sdPlugin` baixado.
 3. O software do Mirabox Stream Dock abrirá automaticamente e instalará o plugin de forma instantânea.
 

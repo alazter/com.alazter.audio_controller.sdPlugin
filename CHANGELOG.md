@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.6] - 2026-08-10
+
+### Fixed / Corrigido
+- **[English]** **Multi-Audio Endpoint & Voicemeeter Support:** Updated WASAPI session enumeration in `VolumeControl.exe` from querying solely the Windows default playback endpoint to enumerating ALL active audio rendering devices (`IMMDeviceCollection`). Fixes control and detection for applications (such as Discord, Spotify, Chrome) routed to custom virtual audio cables (VB-Audio Cable A/B, Voicemeeter VAIO, SteelSeries Sonar, GoXLR, etc.).
+- **[Português]** **Suporte a Múltiplos Dispositivos de Áudio e Voicemeeter:** Atualizada a enumeração de sessões de áudio no executável C# (`VolumeControl.exe`) para buscar em TODOS os dispositivos de saída ativos do Windows (`IMMDeviceCollection`), em vez de consultar apenas o dispositivo padrão. Resolve o controle de volume e mudo de aplicativos (como Discord) configurados para sair em cabos virtuais como CABLE-A, CABLE-B, Voicemeeter, SteelSeries Sonar, etc.
+
+---
+
 ## [v0.3.5] - 2026-07-13
 
 ### Added / Adicionado

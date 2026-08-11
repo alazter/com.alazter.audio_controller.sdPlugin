@@ -24,10 +24,17 @@ public class VolumeControl
     [ComImport, Guid("bcde0395-e52f-467c-8e3d-c4579291692e")]
     private class MMDeviceEnumerator { }
 
+    [Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IMMDeviceCollection
+    {
+        [PreserveSig] int GetCount(out int pcDevices);
+        [PreserveSig] int Item(int nDevice, out IMMDevice ppDevice);
+    }
+
     [Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IMMDeviceEnumerator
     {
-        [PreserveSig] int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr ppDevices);
+        [PreserveSig] int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDeviceCollection ppDevices);
         [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice ppEndpoint);
     }
 
@@ -284,150 +291,249 @@ public class VolumeControl
             targetProcessName = targetInput;
         }
 
+        IMMDeviceEnumerator enumerator = null;
+        IMMDeviceCollection deviceCol = null;
+
         try
         {
-            IMMDeviceEnumerator enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumerator());
-            IMMDevice device;
-            enumerator.GetDefaultAudioEndpoint(0, 1, out device);
+            enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumerator());
+            if (enumerator.EnumAudioEndpoints(0, 1, out deviceCol) != 0 || deviceCol == null)
+            {
+                SendOutput("-1");
+                return;
+            }
 
-            Guid iid = typeof(IAudioSessionManager2).GUID;
-            object o;
-            device.Activate(ref iid, 1, IntPtr.Zero, out o);
-            IAudioSessionManager2 manager = (IAudioSessionManager2)o;
-
-            IAudioSessionEnumerator sessionEnum;
-            manager.GetSessionEnumerator(out sessionEnum);
-            int count;
-            sessionEnum.GetCount(out count);
+            int deviceCount = 0;
+            if (deviceCol.GetCount(out deviceCount) != 0)
+            {
+                SendOutput("-1");
+                return;
+            }
 
             if (listMode)
             {
                 System.Collections.Generic.List<string> procNames = new System.Collections.Generic.List<string>();
-                for (int i = 0; i < count; i++)
+                for (int d = 0; d < deviceCount; d++)
                 {
-                    IAudioSessionControl2 sessionCtrl;
-                    sessionEnum.GetSession(i, out sessionCtrl);
-                    uint pid;
-                    sessionCtrl.GetProcessId(out pid);
-                    if (pid == 0) {
-                        IntPtr instIdPtr;
-                        sessionCtrl.GetSessionInstanceIdentifier(out instIdPtr);
-                        if (instIdPtr != IntPtr.Zero)
-                        {
-                            string instId = Marshal.PtrToStringUni(instIdPtr).ToLower();
-                            Marshal.FreeCoTaskMem(instIdPtr);
-                            if (instId.Contains(".exe%"))
-                            {
-                                int exeIdx = instId.LastIndexOf(".exe%");
-                                int slashIdx = instId.LastIndexOf('\\', exeIdx);
-                                if (slashIdx != -1 && exeIdx > slashIdx)
-                                {
-                                    string extracted = instId.Substring(slashIdx + 1, exeIdx - slashIdx + 3); // includes .exe
-                                    if (!procNames.Contains(extracted)) procNames.Add(extracted);
-                                }
-                            }
-                            else if (instId.Contains("spotify"))
-                            {
-                                if (!procNames.Contains("spotify.exe")) procNames.Add("spotify.exe");
-                            }
-                        }
-                        continue;
-                    }
+                    IMMDevice device = null;
+                    if (deviceCol.Item(d, out device) != 0 || device == null) continue;
+
                     try
                     {
-                        string processName = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName;
-                        string exeName = processName.ToLower() + ".exe";
-                        if (!procNames.Contains(exeName)) {
-                            procNames.Add(exeName);
+                        Guid iid = typeof(IAudioSessionManager2).GUID;
+                        object o;
+                        if (device.Activate(ref iid, 1, IntPtr.Zero, out o) == 0 && o != null)
+                        {
+                            IAudioSessionManager2 manager = (IAudioSessionManager2)o;
+                            IAudioSessionEnumerator sessionEnum;
+                            if (manager.GetSessionEnumerator(out sessionEnum) == 0 && sessionEnum != null)
+                            {
+                                int count;
+                                if (sessionEnum.GetCount(out count) == 0)
+                                {
+                                    for (int i = 0; i < count; i++)
+                                    {
+                                        IAudioSessionControl2 sessionCtrl;
+                                        if (sessionEnum.GetSession(i, out sessionCtrl) == 0 && sessionCtrl != null)
+                                        {
+                                            try
+                                            {
+                                                uint pid;
+                                                sessionCtrl.GetProcessId(out pid);
+                                                if (pid == 0)
+                                                {
+                                                    IntPtr instIdPtr;
+                                                    sessionCtrl.GetSessionInstanceIdentifier(out instIdPtr);
+                                                    if (instIdPtr != IntPtr.Zero)
+                                                    {
+                                                        string instId = Marshal.PtrToStringUni(instIdPtr).ToLower();
+                                                        Marshal.FreeCoTaskMem(instIdPtr);
+                                                        if (instId.Contains(".exe%"))
+                                                        {
+                                                            int exeIdx = instId.LastIndexOf(".exe%");
+                                                            int slashIdx = instId.LastIndexOf('\\', exeIdx);
+                                                            if (slashIdx != -1 && exeIdx > slashIdx)
+                                                            {
+                                                                string extracted = instId.Substring(slashIdx + 1, exeIdx - slashIdx + 3);
+                                                                if (!procNames.Contains(extracted)) procNames.Add(extracted);
+                                                            }
+                                                        }
+                                                        else if (instId.Contains("spotify"))
+                                                        {
+                                                            if (!procNames.Contains("spotify.exe")) procNames.Add("spotify.exe");
+                                                        }
+                                                    }
+                                                }
+                                                else
+                                                {
+                                                    try
+                                                    {
+                                                        string processName = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName;
+                                                        string exeName = processName.ToLower() + ".exe";
+                                                        if (!procNames.Contains(exeName)) procNames.Add(exeName);
+                                                    }
+                                                    catch { }
+                                                }
+                                            }
+                                            finally
+                                            {
+                                                Marshal.ReleaseComObject(sessionCtrl);
+                                            }
+                                        }
+                                    }
+                                }
+                                Marshal.ReleaseComObject(sessionEnum);
+                            }
+                            Marshal.ReleaseComObject(manager);
                         }
                     }
-                    catch { }
+                    finally
+                    {
+                        Marshal.ReleaseComObject(device);
+                    }
                 }
                 SendOutput(string.Join(",", procNames));
                 return;
             }
 
-            for (int i = 0; i < count; i++)
+            bool foundAny = false;
+            float lastVol = -1f;
+            int lastMute = 0;
+
+            for (int d = 0; d < deviceCount; d++)
             {
-                IAudioSessionControl2 sessionCtrl;
-                sessionEnum.GetSession(i, out sessionCtrl);
-                uint pid;
-                sessionCtrl.GetProcessId(out pid);
+                IMMDevice device = null;
+                if (deviceCol.Item(d, out device) != 0 || device == null) continue;
 
-                bool match = false;
-                IntPtr instIdPtr;
-                sessionCtrl.GetSessionInstanceIdentifier(out instIdPtr);
-                if (instIdPtr != IntPtr.Zero)
+                try
                 {
-                    string instId = Marshal.PtrToStringUni(instIdPtr).ToLower();
-                    Marshal.FreeCoTaskMem(instIdPtr);
-                    if (!string.IsNullOrEmpty(targetProcessName))
+                    Guid iid = typeof(IAudioSessionManager2).GUID;
+                    object o;
+                    if (device.Activate(ref iid, 1, IntPtr.Zero, out o) == 0 && o != null)
                     {
-                        string nameWithoutExe = targetProcessName.Replace(".exe", "");
-                        if (instId.Contains(targetProcessName) || instId.Contains(nameWithoutExe))
+                        IAudioSessionManager2 manager = (IAudioSessionManager2)o;
+                        IAudioSessionEnumerator sessionEnum;
+                        if (manager.GetSessionEnumerator(out sessionEnum) == 0 && sessionEnum != null)
                         {
-                            match = true;
-                        }
-                    }
-                }
-
-                if (!match && pid != 0)
-                {
-                    if (isPid && pid == targetPid)
-                    {
-                        match = true;
-                    }
-                    else if (!string.IsNullOrEmpty(targetProcessName))
-                    {
-                        try
-                        {
-                            string sName = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName.ToLower();
-                            if (sName == targetProcessName || sName + ".exe" == targetProcessName) {
-                                match = true;
-                            }
-                        } catch { } // Process might have exited or permission denied
-                    }
-                }
-
-                if (match)
-                {
-                    ISimpleAudioVolume simpleVol = sessionCtrl as ISimpleAudioVolume;
-                    if (simpleVol != null)
-                    {
-                        if (args.Length > 1)
-                        {
-                            if (args[1].ToLower() == "toggle_mute")
+                            int count;
+                            if (sessionEnum.GetCount(out count) == 0)
                             {
-                                int isMuted;
-                                simpleVol.GetMute(out isMuted);
-                                Guid ctx = Guid.Empty;
-                                simpleVol.SetMute(isMuted == 0 ? 1 : 0, ref ctx);
-                            }
-                            else
-                            {
-                                float newVol;
-                                if (float.TryParse(args[1], out newVol))
+                                for (int i = 0; i < count; i++)
                                 {
-                                    newVol = Math.Max(0, Math.Min(1, newVol / 100f));
-                                    Guid ctx = Guid.Empty;
-                                    simpleVol.SetMasterVolume(newVol, ref ctx);
+                                    IAudioSessionControl2 sessionCtrl;
+                                    if (sessionEnum.GetSession(i, out sessionCtrl) == 0 && sessionCtrl != null)
+                                    {
+                                        try
+                                        {
+                                            uint pid;
+                                            sessionCtrl.GetProcessId(out pid);
+
+                                            bool match = false;
+                                            IntPtr instIdPtr;
+                                            sessionCtrl.GetSessionInstanceIdentifier(out instIdPtr);
+                                            if (instIdPtr != IntPtr.Zero)
+                                            {
+                                                string instId = Marshal.PtrToStringUni(instIdPtr).ToLower();
+                                                Marshal.FreeCoTaskMem(instIdPtr);
+                                                if (!string.IsNullOrEmpty(targetProcessName))
+                                                {
+                                                    string nameWithoutExe = targetProcessName.Replace(".exe", "");
+                                                    if (instId.Contains(targetProcessName) || instId.Contains(nameWithoutExe))
+                                                    {
+                                                        match = true;
+                                                    }
+                                                }
+                                            }
+
+                                            if (!match && pid != 0)
+                                            {
+                                                if (isPid && pid == targetPid)
+                                                {
+                                                    match = true;
+                                                }
+                                                else if (!string.IsNullOrEmpty(targetProcessName))
+                                                {
+                                                    try
+                                                    {
+                                                        string sName = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName.ToLower();
+                                                        if (sName == targetProcessName || sName + ".exe" == targetProcessName)
+                                                        {
+                                                            match = true;
+                                                        }
+                                                    }
+                                                    catch { }
+                                                }
+                                            }
+
+                                            if (match)
+                                            {
+                                                ISimpleAudioVolume simpleVol = sessionCtrl as ISimpleAudioVolume;
+                                                if (simpleVol != null)
+                                                {
+                                                    if (args.Length > 1)
+                                                    {
+                                                        if (args[1].ToLower() == "toggle_mute")
+                                                        {
+                                                            int isMuted;
+                                                            simpleVol.GetMute(out isMuted);
+                                                            Guid ctx = Guid.Empty;
+                                                            simpleVol.SetMute(isMuted == 0 ? 1 : 0, ref ctx);
+                                                        }
+                                                        else
+                                                        {
+                                                            float newVol;
+                                                            if (float.TryParse(args[1], out newVol))
+                                                            {
+                                                                newVol = Math.Max(0, Math.Min(1, newVol / 100f));
+                                                                Guid ctx = Guid.Empty;
+                                                                simpleVol.SetMasterVolume(newVol, ref ctx);
+                                                            }
+                                                        }
+                                                    }
+                                                    float curVol;
+                                                    simpleVol.GetMasterVolume(out curVol);
+                                                    int finalMute;
+                                                    simpleVol.GetMute(out finalMute);
+                                                    lastVol = curVol;
+                                                    lastMute = finalMute;
+                                                    foundAny = true;
+                                                }
+                                            }
+                                        }
+                                        finally
+                                        {
+                                            Marshal.ReleaseComObject(sessionCtrl);
+                                        }
+                                    }
                                 }
                             }
+                            Marshal.ReleaseComObject(sessionEnum);
                         }
-                        float curVol;
-                        simpleVol.GetMasterVolume(out curVol);
-                        int finalMute;
-                        simpleVol.GetMute(out finalMute);
-                        SendOutput(Math.Round(curVol * 100) + "|" + finalMute);
-                        return;
+                        Marshal.ReleaseComObject(manager);
                     }
                 }
+                finally
+                {
+                    Marshal.ReleaseComObject(device);
+                }
             }
+
+            if (foundAny)
+            {
+                SendOutput(Math.Round(lastVol * 100) + "|" + lastMute);
+                return;
+            }
+
             SendOutput("-1");
         }
         catch
         {
-            SendOutput("-1"); // Error case
+            SendOutput("-1");
+        }
+        finally
+        {
+            if (deviceCol != null) Marshal.ReleaseComObject(deviceCol);
+            if (enumerator != null) Marshal.ReleaseComObject(enumerator);
         }
     }
 }
