@@ -14,6 +14,26 @@ public class VolumeControl
     private static extern bool CloseHandle(IntPtr hObject);
 
     private static string currentCorrelationId = "";
+    private static System.Collections.Generic.Dictionary<uint, string> pidCache = new System.Collections.Generic.Dictionary<uint, string>();
+    private static System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<ISimpleAudioVolume>> targetCache = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<ISimpleAudioVolume>>();
+
+    private static string GetProcNameFromPid(uint pid)
+    {
+        if (pid == 0) return null;
+        string name;
+        if (pidCache.TryGetValue(pid, out name)) return name;
+        try
+        {
+            name = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName.ToLower();
+            pidCache[pid] = name;
+            return name;
+        }
+        catch
+        {
+            pidCache[pid] = null;
+            return null;
+        }
+    }
 
     private static void SendOutput(object value)
     {
@@ -172,7 +192,7 @@ public class VolumeControl
         }
 
         string cmd = args[0].ToLower();
-        if (cmd == "server")
+        if (cmd == "server" || cmd == "ipc")
         {
             string line;
             while ((line = Console.ReadLine()) != null)
@@ -291,6 +311,61 @@ public class VolumeControl
             targetProcessName = targetInput;
         }
 
+        if (listMode)
+        {
+            targetCache.Clear();
+        }
+        else if (!string.IsNullOrEmpty(targetInput) && targetCache.ContainsKey(targetInput))
+        {
+            var cachedList = targetCache[targetInput];
+            if (cachedList != null && cachedList.Count > 0)
+            {
+                float lastVol = -1f;
+                int lastMute = 0;
+                try
+                {
+                    foreach (var simpleVol in cachedList)
+                    {
+                        if (args.Length > 1)
+                        {
+                            if (args[1].ToLower() == "toggle_mute")
+                            {
+                                int isMuted;
+                                simpleVol.GetMute(out isMuted);
+                                Guid ctx = Guid.Empty;
+                                simpleVol.SetMute(isMuted == 0 ? 1 : 0, ref ctx);
+                            }
+                            else
+                            {
+                                float newVol;
+                                if (float.TryParse(args[1], out newVol))
+                                {
+                                    newVol = Math.Max(0, Math.Min(1, newVol / 100f));
+                                    Guid ctx = Guid.Empty;
+                                    simpleVol.SetMasterVolume(newVol, ref ctx);
+                                }
+                            }
+                        }
+                        float curVol;
+                        simpleVol.GetMasterVolume(out curVol);
+                        int finalMute;
+                        simpleVol.GetMute(out finalMute);
+                        lastVol = curVol;
+                        lastMute = finalMute;
+                    }
+                    if (lastVol >= 0)
+                    {
+                        SendOutput(Math.Round(lastVol * 100) + "|" + lastMute);
+                        return;
+                    }
+                }
+                catch
+                {
+                    targetCache.Remove(targetInput);
+                }
+            }
+        }
+
         IMMDeviceEnumerator enumerator = null;
         IMMDeviceCollection deviceCol = null;
 
@@ -368,9 +443,12 @@ public class VolumeControl
                                                 {
                                                     try
                                                     {
-                                                        string processName = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName;
-                                                        string exeName = processName.ToLower() + ".exe";
-                                                        if (!procNames.Contains(exeName)) procNames.Add(exeName);
+                                                        string processName = GetProcNameFromPid(pid);
+                                                        if (!string.IsNullOrEmpty(processName))
+                                                        {
+                                                            string exeName = processName.ToLower() + ".exe";
+                                                            if (!procNames.Contains(exeName)) procNames.Add(exeName);
+                                                        }
                                                     }
                                                     catch { }
                                                 }
@@ -455,8 +533,8 @@ public class VolumeControl
                                                 {
                                                     try
                                                     {
-                                                        string sName = System.Diagnostics.Process.GetProcessById((int)pid).ProcessName.ToLower();
-                                                        if (sName == targetProcessName || sName + ".exe" == targetProcessName)
+                                                        string sName = GetProcNameFromPid(pid);
+                                                        if (!string.IsNullOrEmpty(sName) && (sName == targetProcessName || sName + ".exe" == targetProcessName))
                                                         {
                                                             match = true;
                                                         }
@@ -470,6 +548,17 @@ public class VolumeControl
                                                 ISimpleAudioVolume simpleVol = sessionCtrl as ISimpleAudioVolume;
                                                 if (simpleVol != null)
                                                 {
+                                                    if (!string.IsNullOrEmpty(targetInput))
+                                                    {
+                                                        if (!targetCache.ContainsKey(targetInput))
+                                                        {
+                                                            targetCache[targetInput] = new System.Collections.Generic.List<ISimpleAudioVolume>();
+                                                        }
+                                                        if (!targetCache[targetInput].Contains(simpleVol))
+                                                        {
+                                                            targetCache[targetInput].Add(simpleVol);
+                                                        }
+                                                    }
                                                     if (args.Length > 1)
                                                     {
                                                         if (args[1].ToLower() == "toggle_mute")

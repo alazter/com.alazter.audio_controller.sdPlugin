@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.7] - 2026-08-12
+
+### Added / Adicionado
+- **[English]** **Crash Shielding & Multi-Layer Resilience:** Implemented 5-layer shielding architecture to prevent configuration and icon data loss when Stream Dock crashes or closes abruptly due to third-party plugin errors.
+- **[Português]** **Blindagem Contra Travamentos & Resiliência Multi-Camada:** Implementada arquitetura de blindagem em 5 camadas para proteger whitelists (Games Whitelist, Software Whitelist, Blacklist) e ícones personalizados contra perda de dados em travamentos do software Stream Dock.
+- **[English]** **Physical Icon File Storage (`icons/`):** Custom icons are now automatically saved as physical image files in `%APPDATA%\com.alazter.audio_controller.sdPlugin\icons\`. If settings are corrupted, icons are auto-recovered from disk.
+- **[Português]** **Armazenamento Físico de Ícones (`icons/`):** Ícones personalizados agora são salvos como arquivos de imagem físicos em `%APPDATA%\com.alazter.audio_controller.sdPlugin\icons\`. Se o arquivo de perfis for corrompido, os ícones são auto-recuperados automaticamente do disco.
+- **[English]** **Atomic File Writes & Automatic Backups:** `saveData()` writes to `profiles.json.tmp` before atomically swapping, while generating `profiles.json.bak` backups to prevent 0-byte file corruption during unexpected system kills.
+- **[Português]** **Gravação Atômica e Backup Automático:** `saveData()` grava primeiro em `profiles.json.tmp` antes de realizar a substituição atômica, criando um backup `profiles.json.bak` para impedir arquivos zerados ou corrompidos em quedas abruptas.
+- **[English]** **Non-Destructive List Merging:** Incoming empty setting payloads (`{}`) sent by Stream Dock during post-crash restarts are safely merged, preserving local AppData whitelists and profiles.
+- **[Português]** **Fusão Não-Destrutiva de Listas:** Payloads vazios (`{}`) enviados pelo Stream Dock ao reiniciar após crashes são mesclados de forma não-destrutiva, preservando a Games Whitelist e a Whitelist salvas localmente.
+
+---
+
 ## [v0.3.6] - 2026-08-10
 
 ### Fixed / Corrigido

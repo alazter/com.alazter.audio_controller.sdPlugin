@@ -140,6 +140,9 @@ function logDebug(msg) {
 const appDataDir = process.env.APPDATA || (process.platform === 'darwin' ? path.join(process.env.HOME, 'Library/Preferences') : path.join(process.env.HOME, '.config'));
 const PLUGIN_DATA_DIR = path.join(appDataDir, 'com.alazter.audio_controller.sdPlugin');
 const PROFILES_PATH = path.join(PLUGIN_DATA_DIR, 'profiles.json');
+const PROFILES_BAK_PATH = path.join(PLUGIN_DATA_DIR, 'profiles.json.bak');
+const PROFILES_TMP_PATH = path.join(PLUGIN_DATA_DIR, 'profiles.json.tmp');
+const ICONS_DIR = path.join(PLUGIN_DATA_DIR, 'icons');
 
 // Pastas de versões anteriores para migração automática
 const OLD_VOLUME_DATA_DIR = path.join(appDataDir, 'com.alazter.mirabox.volume.sdPlugin');
@@ -151,74 +154,163 @@ const LOCAL_PROFILES_PATH = path.join(__dirname, 'profiles.json');
 const VOL_CTRL_CMD = path.join(__dirname, 'VolumeControl.exe');
 const ipc = new VolumeControlIPC(VOL_CTRL_CMD);
 
-// Carregar perfis, whitelist, gamesWhitelist e blacklist de forma persistente com migração automatizada
+// Salvar cópia física do ícone em formato de imagem na pasta icons/
+function savePhysicalIcon(procName, base64Data) {
+    if (!procName || !base64Data || typeof base64Data !== 'string' || !base64Data.startsWith('data:image')) return;
+    try {
+        if (!fs.existsSync(ICONS_DIR)) {
+            fs.mkdirSync(ICONS_DIR, { recursive: true });
+        }
+        const matches = base64Data.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+        if (matches) {
+            const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+            const buffer = Buffer.from(matches[2], 'base64');
+            const safeName = procName.toLowerCase().replace(/[^a-z0-9._-]/g, '_');
+            const iconPath = path.join(ICONS_DIR, `${safeName}.${ext}`);
+            fs.writeFileSync(iconPath, buffer);
+            console.log(`✅ Ícone físico salvo com sucesso para '${procName}': ${iconPath}`);
+        }
+    } catch(e) {
+        console.error(`❌ Erro salvando ícone físico para '${procName}':`, e);
+    }
+}
+
+// Remover arquivo de ícone físico da pasta icons/ quando o usuário remove o ícone
+function removePhysicalIcon(procName) {
+    if (!procName) return;
+    try {
+        if (!fs.existsSync(ICONS_DIR)) return;
+        const safeName = procName.toLowerCase().replace(/[^a-z0-9._-]/g, '_');
+        const exts = ['.png', '.jpg', '.jpeg', '.bmp', '.gif'];
+        for (const ext of exts) {
+            const iconPath = path.join(ICONS_DIR, `${safeName}${ext}`);
+            if (fs.existsSync(iconPath)) {
+                try {
+                    fs.unlinkSync(iconPath);
+                    console.log(`🗑️ Ícone físico removido de '${procName}': ${iconPath}`);
+                } catch(e){}
+            }
+        }
+    } catch(e) {}
+}
+
+// Carregar perfis, whitelist, gamesWhitelist e blacklist de forma resiliente e com auto-recuperação
 function loadData() {
     try {
         if (!fs.existsSync(PLUGIN_DATA_DIR)) {
             fs.mkdirSync(PLUGIN_DATA_DIR, { recursive: true });
         }
+        if (!fs.existsSync(ICONS_DIR)) {
+            fs.mkdirSync(ICONS_DIR, { recursive: true });
+        }
         
         let rawData = null;
         
         if (fs.existsSync(PROFILES_PATH)) {
-            rawData = fs.readFileSync(PROFILES_PATH, 'utf8');
-            logDebug("Profiles carregados da pasta persistente AppData.");
-        } else if (fs.existsSync(OLD_VOLUME_PROFILES_PATH)) {
-            rawData = fs.readFileSync(OLD_VOLUME_PROFILES_PATH, 'utf8');
             try {
-                fs.writeFileSync(PROFILES_PATH, rawData, 'utf8');
-                logDebug("Profiles anteriores migrados do AppData (mirabox.volume).");
-            } catch (err) {
-                console.error("Erro migrando profiles do AppData do volume:", err);
-            }
-        } else if (fs.existsSync(OLD_TIME_PROFILES_PATH)) {
-            rawData = fs.readFileSync(OLD_TIME_PROFILES_PATH, 'utf8');
-            try {
-                fs.writeFileSync(PROFILES_PATH, rawData, 'utf8');
-                logDebug("Profiles antigos migrados do AppData (streamdock.time).");
-            } catch (err) {
-                console.error("Erro migrando profiles do AppData do relógio:", err);
-            }
-        } else if (fs.existsSync(LOCAL_PROFILES_PATH)) {
-            rawData = fs.readFileSync(LOCAL_PROFILES_PATH, 'utf8');
-            try {
-                fs.writeFileSync(PROFILES_PATH, rawData, 'utf8');
-                logDebug("Profiles locais migrados para a pasta persistente AppData.");
-            } catch (err) {
-                console.error("Erro migrando profiles locais para AppData:", err);
+                rawData = fs.readFileSync(PROFILES_PATH, 'utf8');
+                JSON.parse(rawData); // Validação de integridade do JSON
+                logDebug("Profiles carregados da pasta persistente AppData.");
+            } catch(err) {
+                console.error("⚠️ Corrupção detectada no profiles.json principal! Tentando recuperar do backup...", err);
+                rawData = null;
             }
         }
         
-        if (rawData) {
-            const data = JSON.parse(rawData);
-            profiles = data.profiles || {};
-            whitelist = data.whitelist || [];
-            gamesWhitelist = data.gamesWhitelist || [];
-            blacklist = data.blacklist || [];
-        } else {
-            const defaultData = { profiles: {}, whitelist: [], gamesWhitelist: [], blacklist: [] };
-            fs.writeFileSync(PROFILES_PATH, JSON.stringify(defaultData, null, 2), 'utf8');
-            profiles = defaultData.profiles;
-            whitelist = defaultData.whitelist;
-            gamesWhitelist = defaultData.gamesWhitelist;
-            blacklist = defaultData.blacklist;
-            logDebug("Nenhum profile encontrado. Inicializado novo em AppData.");
+        if (!rawData && fs.existsSync(PROFILES_BAK_PATH)) {
+            try {
+                rawData = fs.readFileSync(PROFILES_BAK_PATH, 'utf8');
+                JSON.parse(rawData);
+                console.log("🛡️ Profiles recuperados com sucesso do arquivo de backup profiles.json.bak!");
+                try { fs.copyFileSync(PROFILES_BAK_PATH, PROFILES_PATH); } catch(e){}
+            } catch(err) {
+                console.error("❌ Erro lendo profiles.json.bak:", err);
+                rawData = null;
+            }
         }
+        
+        if (!rawData && fs.existsSync(OLD_VOLUME_PROFILES_PATH)) {
+            try { rawData = fs.readFileSync(OLD_VOLUME_PROFILES_PATH, 'utf8'); } catch(err){}
+        } else if (!rawData && fs.existsSync(OLD_TIME_PROFILES_PATH)) {
+            try { rawData = fs.readFileSync(OLD_TIME_PROFILES_PATH, 'utf8'); } catch(err){}
+        } else if (!rawData && fs.existsSync(LOCAL_PROFILES_PATH)) {
+            try { rawData = fs.readFileSync(LOCAL_PROFILES_PATH, 'utf8'); } catch(err){}
+        }
+        
+        if (rawData) {
+            try {
+                const data = JSON.parse(rawData);
+                profiles = data.profiles || {};
+                whitelist = Array.isArray(data.whitelist) ? data.whitelist : [];
+                gamesWhitelist = Array.isArray(data.gamesWhitelist) ? data.gamesWhitelist : [];
+                blacklist = Array.isArray(data.blacklist) ? data.blacklist : [];
+            } catch(e) {
+                profiles = {}; whitelist = []; gamesWhitelist = []; blacklist = [];
+            }
+        } else {
+            profiles = {}; whitelist = []; gamesWhitelist = []; blacklist = [];
+            console.log("Nenhum profile válido encontrado. Criada nova estrutura persistente em AppData.");
+        }
+
+        // RESTAURAÇÃO AUTOMÁTICA DE ÍCONES FÍSICOS DA PASTA ICONS_DIR
+        try {
+            const files = fs.readdirSync(ICONS_DIR);
+            for (const file of files) {
+                const ext = path.extname(file).toLowerCase();
+                if (ext === '.png' || ext === '.jpg' || ext === '.jpeg' || ext === '.bmp' || ext === '.gif') {
+                    const procName = path.basename(file, ext).toLowerCase();
+                    const filePath = path.join(ICONS_DIR, file);
+                    const fileBuf = fs.readFileSync(filePath);
+                    const mime = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : (ext === '.gif' ? 'image/gif' : 'image/png');
+                    const base64Str = `data:${mime};base64,${fileBuf.toString('base64')}`;
+
+                    if (!profiles[procName]) profiles[procName] = {};
+                    if (!profiles[procName].image) {
+                        profiles[procName].image = base64Str;
+                        console.log(`🛡️ Ícone personalizado de '${procName}' auto-recuperado do arquivo físico.`);
+                    }
+                }
+            }
+        } catch(err) {
+            console.error("Erro na auto-recuperação de ícones físicos:", err);
+        }
+
     } catch(e) {
-        console.error("Erro lendo profiles:", e);
-        logDebug("Erro lendo profiles: " + e.message);
+        console.error("Erro crítico em loadData:", e);
     }
 }
 
+// Gravação atômica super segura com backup preventivo
 function saveData() {
     try {
         if (!fs.existsSync(PLUGIN_DATA_DIR)) {
             fs.mkdirSync(PLUGIN_DATA_DIR, { recursive: true });
         }
-    } catch(e) {}
-    fs.writeFile(PROFILES_PATH, JSON.stringify({profiles, whitelist, gamesWhitelist, blacklist}, null, 2), 'utf8', (err) => {
-        if (err) console.error("Erro salvando profiles:", err);
-    });
+        if (!fs.existsSync(ICONS_DIR)) {
+            fs.mkdirSync(ICONS_DIR, { recursive: true });
+        }
+        
+        const dataToSave = JSON.stringify({ profiles, whitelist, gamesWhitelist, blacklist }, null, 2);
+        
+        // 1. Escrever no arquivo temporário
+        fs.writeFileSync(PROFILES_TMP_PATH, dataToSave, 'utf8');
+        
+        // 2. Se o arquivo principal existe e tem tamanho > 0, criar backup antes de substituir
+        if (fs.existsSync(PROFILES_PATH)) {
+            try {
+                const stat = fs.statSync(PROFILES_PATH);
+                if (stat.size > 0) {
+                    fs.copyFileSync(PROFILES_PATH, PROFILES_BAK_PATH);
+                }
+            } catch(e) {}
+        }
+        
+        // 3. Renomear/substituir atomicamente
+        fs.copyFileSync(PROFILES_TMP_PATH, PROFILES_PATH);
+        try { fs.unlinkSync(PROFILES_TMP_PATH); } catch(e){}
+    } catch(e) {
+        console.error("Erro gravando profiles atômico:", e);
+    }
 }
 
 let saveTimeout = null;
@@ -460,14 +552,24 @@ function connect() {
                 lastFeedbackValue: null,
                 lastIndicator: null
             };
-            if (settings.whitelist && Array.isArray(settings.whitelist)) {
-                whitelist = settings.whitelist;
+            // Fusão Não-Destrutiva: Apenas mesclar itens se o payload contiver dados, protegendo contra reinicializações pós-crash
+            if (settings.gamesWhitelist && Array.isArray(settings.gamesWhitelist) && settings.gamesWhitelist.length > 0) {
+                for (const item of settings.gamesWhitelist) {
+                    if (!gamesWhitelist.includes(item)) gamesWhitelist.push(item);
+                }
             }
-            if (settings.blacklist && Array.isArray(settings.blacklist)) {
-                blacklist = settings.blacklist;
+            if (settings.whitelist && Array.isArray(settings.whitelist) && settings.whitelist.length > 0) {
+                for (const item of settings.whitelist) {
+                    if (!whitelist.includes(item)) whitelist.push(item);
+                }
+            }
+            if (settings.blacklist && Array.isArray(settings.blacklist) && settings.blacklist.length > 0) {
+                for (const item of settings.blacklist) {
+                    if (!blacklist.includes(item)) blacklist.push(item);
+                }
             }
             saveData();
-            logDebug("Loaded willAppear settings. Whitelist: " + JSON.stringify(whitelist) + ", Blacklist: " + JSON.stringify(blacklist));
+            logDebug("Loaded willAppear settings. Whitelist: " + JSON.stringify(whitelist) + ", GamesWhitelist: " + JSON.stringify(gamesWhitelist) + ", Blacklist: " + JSON.stringify(blacklist));
         }
 
         if (event === "willDisappear") {
@@ -483,11 +585,20 @@ function connect() {
                 activeKnobs[context].screenAction = settings.screenAction || "cycle";
                 activeKnobs[context].currentActiveProcess = null; // força reavaliação
             }
-            if (settings.whitelist && Array.isArray(settings.whitelist)) {
-                whitelist = settings.whitelist;
+            if (settings.gamesWhitelist && Array.isArray(settings.gamesWhitelist) && settings.gamesWhitelist.length > 0) {
+                for (const item of settings.gamesWhitelist) {
+                    if (!gamesWhitelist.includes(item)) gamesWhitelist.push(item);
+                }
             }
-            if (settings.blacklist && Array.isArray(settings.blacklist)) {
-                blacklist = settings.blacklist;
+            if (settings.whitelist && Array.isArray(settings.whitelist) && settings.whitelist.length > 0) {
+                for (const item of settings.whitelist) {
+                    if (!whitelist.includes(item)) whitelist.push(item);
+                }
+            }
+            if (settings.blacklist && Array.isArray(settings.blacklist) && settings.blacklist.length > 0) {
+                for (const item of settings.blacklist) {
+                    if (!blacklist.includes(item)) blacklist.push(item);
+                }
             }
             saveData();
         }
@@ -604,6 +715,11 @@ function connect() {
                 const proc = uiMsg.process.toLowerCase();
                 if (!profiles[proc]) profiles[proc] = {};
                 profiles[proc].image = uiMsg.image;
+                if (uiMsg.image && uiMsg.image.length > 0) {
+                    savePhysicalIcon(proc, uiMsg.image);
+                } else {
+                    removePhysicalIcon(proc);
+                }
                 saveData();
                 console.log("Custom icon saved for", proc);
                 
@@ -621,6 +737,11 @@ function connect() {
                 console.log("Volume step updated to", profiles.volumeStep);
             } else if (uiMsg.action === "setMuteIcon") {
                 profiles.muteIcon = uiMsg.image;
+                if (uiMsg.image && uiMsg.image.length > 0) {
+                    savePhysicalIcon('_mute_icon', uiMsg.image);
+                } else {
+                    removePhysicalIcon('_mute_icon');
+                }
                 saveData();
                 console.log("Custom mute icon saved");
                 for (const ctx of Object.keys(activeKnobs)) {
