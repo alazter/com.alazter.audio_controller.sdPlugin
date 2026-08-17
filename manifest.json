@@ -23,8 +23,8 @@
       "Controllers": [
         "Knob"
       ],
-      "Name": "Audio Controller [Alazter] v0.3.7",
-      "Tooltip": "Audio Controller [Alazter] v0.3.7",
+      "Name": "Audio Controller [Alazter] v0.3.8",
+      "Tooltip": "Audio Controller [Alazter] v0.3.8",
       "PropertyInspectorPath": "./propertyInspector/custom/index.html"
     }
   ],

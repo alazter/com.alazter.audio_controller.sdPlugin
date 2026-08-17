@@ -1,6 +1,6 @@
 {
   "name": "com.alazter.audio_controller.sdplugin",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "",
   "main": "interval.js",
   "scripts": {

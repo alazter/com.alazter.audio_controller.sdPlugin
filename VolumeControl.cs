@@ -163,24 +163,25 @@ public class VolumeControl
 
     private static string[] ParseCommandLine(string line)
     {
-        if (line.StartsWith("path ", StringComparison.OrdinalIgnoreCase))
-        {
-            return new string[] { "path", line.Substring(5).Trim() };
-        }
+        line = line.Trim();
         if (line.StartsWith("icon ", StringComparison.OrdinalIgnoreCase))
         {
             return new string[] { "icon", line.Substring(5).Trim() };
         }
-        
-        int firstSpace = line.IndexOf(' ');
-        if (firstSpace == -1)
+        if (line.StartsWith("path ", StringComparison.OrdinalIgnoreCase))
         {
-            return new string[] { line.Trim() };
+            return new string[] { "path", line.Substring(5).Trim() };
         }
         
-        string part1 = line.Substring(0, firstSpace).Trim();
-        string part2 = line.Substring(firstSpace + 1).Trim();
-        return new string[] { part1, part2 };
+        int lastSpace = line.LastIndexOf(' ');
+        if (lastSpace == -1)
+        {
+            return new string[] { line };
+        }
+        
+        string target = line.Substring(0, lastSpace).Trim();
+        string actionOrVol = line.Substring(lastSpace + 1).Trim();
+        return new string[] { target, actionOrVol };
     }
 
     public static void Main(string[] args)

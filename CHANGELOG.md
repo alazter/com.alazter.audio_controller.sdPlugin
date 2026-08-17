@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.3.8] - 2026-08-17
+
+### Fixed / Corrigido
+- **[English]** **Process Names with Spaces Support (League of Legends Fix):** Updated CLI IPC command line parsing in `VolumeControl.cs` (`ParseCommandLine`) to split process target and volume payload by the **last space** instead of the first space. Fixes volume control rejection and display resets for games/executables with spaces in their process names, such as `league of legends.exe`.
+- **[Português]** **Suporte a Processos com Espaço no Nome (Correção League of Legends):** Atualizado o parser IPC no C# (`VolumeControl.cs`) para separar o aplicativo do comando de volume através do **último espaço** da instrução em vez do primeiro. Corrige a rejeição de alterações de volume e o "reset" numérico na tela ao controlar jogos ou executáveis com espaços no nome, como o `league of legends.exe`.
+
+---
+
 ## [v0.3.7] - 2026-08-12
 
 ### Added / Adicionado
